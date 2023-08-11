@@ -43,11 +43,24 @@ You can add messages, clear messages, and perform various operations with the ch
 
 ## Function Descriptions
 
-(Existing content remains the same)
+Function descriptions are extracted from the docstrings within the Python files. You can write standard Python docstrings to describe your functions:
+
+```python
+@openaifunc
+def multiply_numbers(a: int, b: int) -> int:
+    """
+    This function multiplies two numbers.
+    :param a: The first number to multiply
+    :param b: The second number to multiply
+    """
+    return a * b
+```
+
+The `OpenAI_functions` class will automatically parse the docstrings and include them in the `func_description` property.
 
 ## Function Collection
 
-(Existing content remains the same)
+The `OpenAI_function_collection` class allows you to manage multiple `OpenAI_functions` instances in one place. You can load functions from multiple files or an entire folder and access them all through the collection instance.
 
 ## Example Files
 
