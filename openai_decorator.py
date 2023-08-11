@@ -167,7 +167,7 @@ class OpenAI_function_collection:
         
     @property
     def func_list(self):
-        return [func.func_list for func in self.function_collections]
+        return [func for func_collection in self.function_collections for func in func_collection.func_list]
         
     def call_func(self, function_call):
         for funcs in self.function_collections:
