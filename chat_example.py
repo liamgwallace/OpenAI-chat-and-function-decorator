@@ -36,7 +36,7 @@ while True:
                 # }
         
         function_message = create_message('function', f"Function response: {function_call_result}")
-        llm.add_messages(function_message)
+        # llm.add_messages(function_message) # for some reason adding this function response to the history breaks things
 
     print(f"\nRunning tokens: {llm.running_tokens}")
     print(f"\nRunning cost:: {llm.running_cost}")
