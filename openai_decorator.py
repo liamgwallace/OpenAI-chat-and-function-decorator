@@ -2,6 +2,7 @@ import inspect
 import functools
 import importlib.util
 import os
+import json
 from docstring_parser import parse
 
 # Map python types to JSON schema types
@@ -20,12 +21,36 @@ def get_type_mapping(param_type):
     param_type = param_type.replace("<class '", '')
     param_type = param_type.replace("'>", '')
     return type_mapping.get(param_type, "string")
+    
+def preprocess_docstring(docstring):
+    """
+    Preprocess a docstring to merge multi-line parameter descriptions into a single line.
+    """
+    lines = docstring.split("\n")
+    merged_lines = []
+    previous_line = ""
+    keywords = [":param", ":return", ":rtype", ":raises", "Note:", "Example:", "Examples:"]
+
+    for line in lines:
+        stripped_line = line.strip()
+        if any(keyword in stripped_line for keyword in keywords):
+            # Start a new line for recognized keywords
+            merged_lines.append(line)
+        elif stripped_line and not previous_line.startswith(":param") and previous_line:
+            # Merge with the previous line
+            merged_lines[-1] = merged_lines[-1] + " " + stripped_line
+        else:
+            merged_lines.append(line)
+        previous_line = stripped_line
+
+    return "\n".join(merged_lines)
 
 def get_params_dict(params, docstring):
     params_dict = {}
     try:
         # Parse the docstring to get parameter descriptions
-        docstring_parsed = parse(docstring)
+        preprocessed_docstring = preprocess_docstring(docstring)
+        docstring_parsed = parse(preprocessed_docstring)
         param_descriptions = {p.arg_name: p.description for p in docstring_parsed.params}
     except Exception as e:
         print("Error parsing docstring:", e)
@@ -133,12 +158,10 @@ class OpenAI_functions:
         arguments = function_call["arguments"]
         if name not in self.func_mapping:
             raise ValueError(f"Function {name} not found in mapping")
-
         try:
-            arguments = eval(arguments)  # Convert the string to a dictionary
-        except Exception as e:
+            arguments = json.loads(arguments)  # Convert the JSON string to a dictionary
+        except json.JSONDecodeError as e:
             raise ValueError(f"Invalid arguments format: {e}")
-
         function = self.func_mapping[name]
         return function(**arguments)
 

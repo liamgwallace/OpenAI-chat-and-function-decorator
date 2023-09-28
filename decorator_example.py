@@ -35,7 +35,7 @@ print(f"\nThe result of {function_call_math['name']}(3, 4) is {result_math}")
 # Calling a function using all_functions
 function_call_all = {
     "arguments": "{\n  \"location\": \"New York\"\n}",
-    "name": "curr_weather"
+    "name": "tomorrow_weather"
 }
 result_all = all_functions.call_func(function_call_all)
 print(f"\nThe result of {function_call_all['name']}('New York') is {result_all}")

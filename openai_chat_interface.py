@@ -1,4 +1,5 @@
-from openai_decorator import func_list_from_file, get_openai_funcs, openaifunc
+from openai_decorator import OpenAI_functions, OpenAI_function_collection
+from tenacity import retry, wait_random_exponential, stop_after_attempt
 from pprint import pprint
 import copy
 import openai
@@ -7,9 +8,6 @@ import os
 
 # Load environment variables from .env file
 load_dotenv()
-
-# Get the API key from the environment
-api_key = os.getenv("OPENAI_API_KEY")
 
 def calculate_cost(model_name, token_count, currency):
     model_data = {
@@ -30,16 +28,23 @@ def calculate_cost(model_name, token_count, currency):
     cost = model_currency_data[currency.lower()] * (token_count / 1000)
     return cost
 
-def create_message(role, content, name=None, function_call=None):
-    message = {
-        "role": role,
-        "content": content
-    }
+def create_message(role, content="", name=None, function_call=None, llm_response_function=None, function_call_result=None):
+    message = {}
+    message["role"] = role
+    message["content"] = content
     if name:
         message["name"] = name
     if function_call:
         message["function_call"] = function_call
+    if llm_response_function:
+        message["name"] = llm_response_function.get('name')
+        # Convert the function details to a string format
+        func_detail = f"Function Name: {llm_response_function.get('name')}, Arguments: {llm_response_function.get('arguments')}"
+        message["content"] += f"\n{func_detail}"
+    if function_call_result:
+        message["content"] += f"\nFunction Result: {function_call_result}"
     return message
+
 
 class OpenAI_LLM:
     def __init__(self, api_key=None, model="gpt-3.5-turbo", temperature=1.0, system_message='You are a helpful assistant. Answer the user query', user_message='{query}', functions=None, function_call=None):
@@ -53,6 +58,7 @@ class OpenAI_LLM:
         self.functions = functions if functions else []
         self.function_call = function_call if function_call else "auto"
         self.memory = []
+        self.choices = None
         self.response = None  # Initialize the response attribute
         self.running_tokens = 0
         self.running_cost = 0
@@ -60,83 +66,107 @@ class OpenAI_LLM:
     def add_messages(self, messages):
         self.memory.extend(messages)
 
-    def clear_messages(self):
+    def clear_memory(self):
         self.memory = []
-
-    def run(self, messages=None, functions=None, function_call=None, **kwargs):
-        if messages is None:
-            messages = [copy.deepcopy(self.user_message)]
-        tmp_messages = copy.deepcopy(messages)
-        processed_messages = []  # Store processed messages
-        for message in tmp_messages:
-            if kwargs:
-                try:
-                    message['content'] = message['content'].format(**kwargs)
-                except KeyError as e:
-                    print(f"KeyError: Keyword '{e.args[0]}' not provided. Message content: {message['content']}")
-            processed_messages.append(message)
         
-        self.memory.extend(processed_messages)
-        combined_messages = [self.system_message] + self.memory
+    #@retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(10))
+    def _create_chat_completion(self, **kwargs_dict):
+        return openai.ChatCompletion.create(**kwargs_dict)
+        
+    def run(self, messages=None, functions=None, function_call=None, user_message=True, **kwargs):
+        if user_message:
+            if messages is None:
+                messages = [copy.deepcopy(self.user_message)]
+            else:
+                messages = copy.deepcopy(messages)
+        else:
+            messages = []
 
-        # Prepare the keyword arguments dictionary
+        processed_messages = []  # Store processed messages
+        if messages:
+            for message in messages:
+                if kwargs:
+                    try:
+                        message['content'] = message['content'].format(**kwargs)
+                    except KeyError as e:
+                        print(f"KeyError: Keyword '{e.args[0]}' not provided. Message content: {message['content']}")
+                processed_messages.append(message)
+
+        combined_messages = [self.system_message] + self.memory + processed_messages
         kwargs_dict = {
             "model": self.model,
             "messages": combined_messages,
             "temperature": self.temperature
         }
-        # If functions are passed to the run method, use them; otherwise, use the class instance's functions
+        self.memory.extend(processed_messages)
         functions_to_use = functions if functions is not None else self.functions
-
-        # If there are functions to use, add them to kwargs_dict
         if functions_to_use is not None:
             kwargs_dict["functions"] = functions_to_use
-
-            # If function_call is provided, use it; otherwise, use the class instance's function_call
             function_call_to_use = function_call if function_call is not None else self.function_call
-
-            # If there's a function_call to use, add it to kwargs_dict
             if function_call_to_use is not None:
                 kwargs_dict["function_call"] = function_call_to_use
         try:
-            response = openai.ChatCompletion.create(**kwargs_dict)
+            response = self._create_chat_completion(**kwargs_dict)
             if response.choices and response.choices[0].message:
-                self.response = response.choices[0].message
+                self.choices = response.choices[0]
+                self.response = response  # Store the whole response
                 used_tokens = response['usage']['total_tokens']
                 self.running_tokens += used_tokens
                 self.running_cost += calculate_cost(self.model, used_tokens, "gbp")
-        except openai.error.OpenAIError as e:
-            print("OpenAIError:", e)
+        except openai.error.APIError as e:
+            #Handle API error here, e.g. retry or log
+            print(f"OpenAI API returned an API Error: {e}")
+            pass
+        except openai.error.APIConnectionError as e:
+            #Handle connection error here
+            print(f"Failed to connect to OpenAI API: {e}")
+            pass
+        except openai.error.RateLimitError as e:
+            #Handle rate limit error (we recommend using exponential backoff)
+            print(f"OpenAI API request exceeded rate limit: {e}")
+            pass
 
-    def get_response_content(self):
-        if self.response:
-            return self.response['content']
+    @property
+    def response_content(self):
+        if self.choices:
+            return self.choices['message']['content']
         else:
-            return "No response available"
+            return []
 
-    def get_response_function(self):
-        if self.response:
-            return self.response['function_call']
+    @property
+    def response_message(self):
+
+        if self.choices:
+            response_message_object = self.choices['message']
+            response_message_dict = response_message_object.to_dict()
+            return response_message_dict
         else:
-            return "No function available"
+            return []
 
-# Example usage
+    @property
+    def response_function(self):
+        if self.choices and 'function_call' in self.choices['message']:
+            function_call_object = self.choices['message']['function_call']
+            function_call_dict = function_call_object.to_dict()
+            return function_call_dict
+        else:
+            return []
 
+    @property
+    def response_function_name(self):
+        function_call_object = self.choices['message']['function_call']
+        function_name = function_call_object['name'] if 'name' in function_call_object else None
+        return function_name
 
-# Create math_func_list from math_funcs.py
-math_func_list, math_func_mapping = func_list_from_file("math_funcs.py")
-weather_func_list, weather_func_mapping = func_list_from_file("weather_funcs.py")
+    @property
+    def response_function_arguments(self):
+        function_call_object = self.choices['message']['function_call']
+        function_arguments = function_call_object['arguments'].to_dict() if 'arguments' in function_call_object else None
+        return function_arguments
 
-llm = OpenAI_LLM(api_key, system_message='respond to the user in ALLCAPS', functions = weather_func_list)    
-
-user_prompt = [
-    create_message("user", "{foo}")
-]
-while True:
-    user = input("input?")
-    llm.run(query=user)
-    print(llm.get_response_content())
-    print(llm.get_response_function())
-    print("Running tokens:", llm.running_tokens)
-    print("Running cost:", llm.running_cost)
-
+    @property
+    def finish_reason(self):
+        if self.choices:
+            return self.choices['finish_reason']
+        else:
+            return "No finish reason available"
