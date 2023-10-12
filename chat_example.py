@@ -1,8 +1,10 @@
-from openai_decorator import OpenAI_functions, OpenAI_function_collection
-from openai_chat_interface import OpenAI_LLM, create_message, calculate_cost
+
 import os
 from dotenv import load_dotenv
-import os
+
+#local files
+from openai_decorator import OpenAI_functions, OpenAI_function_collection
+from openai_chat_interface import OpenAI_LLM, create_message, calculate_cost
 
 # Load environment variables from .env file
 load_dotenv()
