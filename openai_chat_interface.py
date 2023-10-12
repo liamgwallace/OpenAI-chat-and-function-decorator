@@ -71,9 +71,12 @@ class OpenAI_LLM:
         
     #@retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(10))
     def _create_chat_completion(self, **kwargs_dict):
-        return openai.ChatCompletion.create(**kwargs_dict)
+            # print(f"\n#################################\nkwargs_dict:")
+            # print(kwargs_dict)
+            # print(f"kwargs_dict end\n#################################\n")
+            return openai.ChatCompletion.create(**kwargs_dict)
         
-    def run(self, messages=None, functions=None, function_call=None, user_message=True, **kwargs):
+    def run(self, messages=None, functions=None, function_call=None, user_message=True, content_dict=None):
         if user_message:
             if messages is None:
                 messages = [copy.deepcopy(self.user_message)]
@@ -85,9 +88,9 @@ class OpenAI_LLM:
         processed_messages = []  # Store processed messages
         if messages:
             for message in messages:
-                if kwargs:
+                if content_dict:
                     try:
-                        message['content'] = message['content'].format(**kwargs)
+                        message['content'] = message['content'].format(**content_dict)
                     except KeyError as e:
                         print(f"KeyError: Keyword '{e.args[0]}' not provided. Message content: {message['content']}")
                 processed_messages.append(message)
@@ -99,8 +102,9 @@ class OpenAI_LLM:
             "temperature": self.temperature
         }
         self.memory.extend(processed_messages)
+        
         functions_to_use = functions if functions is not None else self.functions
-        if functions_to_use is not None:
+        if functions_to_use:  # Check if the list is not empty
             kwargs_dict["functions"] = functions_to_use
             function_call_to_use = function_call if function_call is not None else self.function_call
             if function_call_to_use is not None:
